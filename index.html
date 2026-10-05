@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Recipe Ingredient Flavor Pairing Explorer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  svg text { user-select: none; }
+  .node circle { cursor: pointer; transition: r 0.2s; }
+  .node circle:hover { r: 16; }
+  .link { stroke: #94a3b8; stroke-opacity: 0.5; }
+  .saved-tag { animation: pop-in 0.2s ease; }
+  @keyframes pop-in { from { transform: scale(0); } to { transform: scale(1); } }
+</style>
+</head>
+<body class="bg-gray-950 min-h-screen text-white font-sans">
+
+<div class="max-w-3xl mx-auto p-4">
+  <h1 class="text-3xl font-bold text-center text-orange-400 mb-1">🍋 Flavor Pairing Explorer</h1>
+  <p class="text-center text-gray-400 mb-5 text-sm">Discover what ingredients pair well together</p>
+
+  <!-- Search -->
+  <div class="flex gap-2 mb-4">
+    <div class="relative flex-1">
+      <input id="ingredient-input" type="text" placeholder="Enter ingredient (e.g. lemon, chocolate, basil...)"
+        class="w-full bg-gray-800 border border-gray-600 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400 text-white"
+        list="ingredient-suggestions" aria-label="Ingredient search" autocomplete="off">
+      <datalist id="ingredient-suggestions"></datalist>
+    </div>
+    <button onclick="search()" class="bg-orange-500 hover:bg-orange-400 text-white px-5 py-2.5 rounded-lg text-sm font-medium transition">
+      Explore
+    </button>
+  </div>
+
+  <!-- Filters -->
+  <div class="flex flex-wrap gap-2 mb-5">
+    <span class="text-xs text-gray-400 self-center">Filter by cuisine:</span>
+    <button onclick="setCuisine('all')" id="filter-all"
+      class="cuisine-btn active-filter bg-orange-600 text-white text-xs px-3 py-1 rounded-full transition">All</button>
+    <button onclick="setCuisine('french')" id="filter-french"
+      class="cuisine-btn bg-gray-700 hover:bg-gray-600 text-xs px-3 py-1 rounded-full transition">French</button>
+    <button onclick="setCuisine('asian')" id="filter-asian"
+      class="cuisine-btn bg-gray-700 hover:bg-gray-600 text-xs px-3 py-1 rounded-full transition">Asian</button>
+    <button onclick="setCuisine('italian')" id="filter-italian"
+      class="cuisine-btn bg-gray-700 hover:bg-gray-600 text-xs px-3 py-1 rounded-full transition">Italian</button>
+    <button onclick="setCuisine('mediterranean')" id="filter-mediterranean"
+      class="cuisine-btn bg-gray-700 hover:bg-gray-600 text-xs px-3 py-1 rounded-full transition">Mediterranean</button>
+    <button onclick="setCuisine('latin')" id="filter-latin"
+      class="cuisine-btn bg-gray-700 hover:bg-gray-600 text-xs px-3 py-1 rounded-full transition">Latin</button>
+  </div>
+
+  <!-- Graph Canvas -->
+  <div class="bg-gray-900 rounded-2xl mb-5 overflow-hidden" style="height:340px;">
+    <svg id="graph-svg" width="100%" height="100%" aria-label="Flavor pairing graph"></svg>
+  </div>
+
+  <!-- Pairings List -->
+  <div id="pairings-list" class="mb-5 hidden">
+    <h2 class="text-base font-semibold text-orange-400 mb-3">Pairings for <span id="current-ingredient" class="text-white"></span></h2>
+    <div id="pairing-cards" class="space-y-2 max-h-64 overflow-y-auto"></div>
+  </div>
+
+  <!-- Saved Combos -->
+  <div id="saved-section" class="bg-gray-900 rounded-xl p-4">
+    <div class="flex justify-between items-center mb-3">
+      <h2 class="text-sm font-semibold text-gray-300">Saved Combinations</h2>
+      <div class="flex gap-2">
+        <button onclick="exportList()" class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded text-gray-300 transition">Export</button>
+        <button onclick="clearSaved()" class="text-xs bg-red-900 hover:bg-red-800 px-3 py-1 rounded text-red-300 transition">Clear</button>
+      </div>
+    </div>
+    <div id="saved-tags" class="flex flex-wrap gap-2 min-h-8">
+      <span class="text-xs text-gray-500 italic">Save pairings by clicking ⭐ below</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// Embedded flavor pairing data
+const FLAVOR_DATA = {
+  lemon:       { profile:'citrus-bright', pairings: [{i:'thyme',s:95,c:['french','mediterranean']},{i:'honey',s:90,c:['all']},{i:'garlic',s:85,c:['mediterranean','italian']},{i:'vanilla',s:75,c:['all']},{i:'ginger',s:85,c:['asian']},{i:'olive oil',s:80,c:['mediterranean']},{i:'dill',s:88,c:['mediterranean']},{i:'basil',s:82,c:['italian']},{i:'blueberry',s:78,c:['all']},{i:'rosemary',s:72,c:['mediterranean','french']}] },
+  chocolate:   { profile:'bitter-sweet', pairings: [{i:'raspberry',s:95,c:['french','all']},{i:'orange',s:92,c:['all']},{i:'vanilla',s:90,c:['all']},{i:'coffee',s:95,c:['all']},{i:'chili',s:88,c:['latin']},{i:'hazelnut',s:93,c:['italian']},{i:'caramel',s:85,c:['french']},{i:'mint',s:80,c:['all']},{i:'cardamom',s:78,c:['asian']},{i:'bacon',s:75,c:['all']}] },
+  basil:       { profile:'herbal-sweet', pairings: [{i:'tomato',s:98,c:['italian','mediterranean']},{i:'mozzarella',s:95,c:['italian']},{i:'garlic',s:90,c:['italian','mediterranean']},{i:'lemon',s:82,c:['mediterranean']},{i:'olive oil',s:88,c:['mediterranean','italian']},{i:'pine nuts',s:85,c:['italian']},{i:'strawberry',s:72,c:['all']},{i:'balsamic',s:80,c:['italian']},{i:'peach',s:76,c:['all']},{i:'parmesan',s:88,c:['italian']}] },
+  ginger:      { profile:'spicy-warm', pairings: [{i:'garlic',s:95,c:['asian']},{i:'soy sauce',s:95,c:['asian']},{i:'honey',s:90,c:['all']},{i:'lemon',s:85,c:['asian','all']},{i:'miso',s:88,c:['asian']},{i:'sesame',s:87,c:['asian']},{i:'scallion',s:90,c:['asian']},{i:'pear',s:80,c:['asian']},{i:'carrot',s:78,c:['asian']},{i:'turmeric',s:85,c:['asian']}] },
+  garlic:      { profile:'pungent-savory', pairings: [{i:'olive oil',s:98,c:['mediterranean','italian']},{i:'rosemary',s:90,c:['mediterranean']},{i:'lemon',s:85,c:['mediterranean']},{i:'thyme',s:88,c:['french','mediterranean']},{i:'tomato',s:92,c:['italian']},{i:'parmesan',s:85,c:['italian']},{i:'butter',s:88,c:['french']},{i:'mushroom',s:90,c:['french','italian']},{i:'basil',s:88,c:['italian']},{i:'ginger',s:80,c:['asian']}] },
+  vanilla:     { profile:'sweet-floral', pairings: [{i:'chocolate',s:90,c:['all']},{i:'caramel',s:93,c:['french','all']},{i:'raspberry',s:85,c:['french']},{i:'peach',s:88,c:['all']},{i:'almond',s:85,c:['french']},{i:'cinnamon',s:87,c:['all']},{i:'coffee',s:82,c:['all']},{i:'lemon',s:75,c:['all']},{i:'mango',s:80,c:['all']},{i:'strawberry',s:85,c:['all']}] },
+  tomato:      { profile:'umami-acidic', pairings: [{i:'basil',s:98,c:['italian','mediterranean']},{i:'garlic',s:92,c:['italian','mediterranean']},{i:'mozzarella',s:95,c:['italian']},{i:'olive oil',s:90,c:['mediterranean','italian']},{i:'oregano',s:88,c:['italian','mediterranean']},{i:'parmesan',s:85,c:['italian']},{i:'balsamic',s:82,c:['italian']},{i:'anchovy',s:88,c:['italian','mediterranean']},{i:'capers',s:80,c:['mediterranean']},{i:'red wine',s:85,c:['italian','french']}] },
+  salmon:      { profile:'fatty-oceanic', pairings: [{i:'dill',s:95,c:['mediterranean']},{i:'lemon',s:92,c:['all']},{i:'capers',s:90,c:['mediterranean']},{i:'cream cheese',s:88,c:['all']},{i:'miso',s:90,c:['asian']},{i:'soy sauce',s:85,c:['asian']},{i:'ginger',s:85,c:['asian']},{i:'avocado',s:82,c:['latin']},{i:'fennel',s:85,c:['french','mediterranean']},{i:'tarragon',s:78,c:['french']}] },
+  avocado:     { profile:'creamy-mild', pairings: [{i:'lime',s:95,c:['latin']},{i:'cilantro',s:92,c:['latin']},{i:'tomato',s:90,c:['latin']},{i:'jalapeño',s:88,c:['latin']},{i:'onion',s:85,c:['latin']},{i:'cumin',s:82,c:['latin']},{i:'garlic',s:80,c:['latin','mediterranean']},{i:'lemon',s:80,c:['all']},{i:'bacon',s:78,c:['all']},{i:'salmon',s:82,c:['latin','all']}] },
+  mushroom:    { profile:'earthy-umami', pairings: [{i:'thyme',s:92,c:['french']},{i:'garlic',s:90,c:['italian','french']},{i:'butter',s:90,c:['french']},{i:'parsley',s:85,c:['french','italian']},{i:'cream',s:88,c:['french']},{i:'parmesan',s:85,c:['italian']},{i:'truffle oil',s:95,c:['french','italian']},{i:'soy sauce',s:85,c:['asian']},{i:'wine',s:88,c:['french']},{i:'egg',s:80,c:['all']}] },
+  strawberry:  { profile:'sweet-fruity', pairings: [{i:'vanilla',s:88,c:['all']},{i:'cream',s:90,c:['french']},{i:'balsamic',s:85,c:['italian']},{i:'basil',s:72,c:['all']},{i:'chocolate',s:90,c:['all']},{i:'lemon',s:78,c:['all']},{i:'mint',s:80,c:['all']},{i:'peach',s:82,c:['all']},{i:'rhubarb',s:88,c:['all']},{i:'black pepper',s:75,c:['all']}] },
+  coffee:      { profile:'bitter-roasted', pairings: [{i:'chocolate',s:95,c:['all']},{i:'vanilla',s:82,c:['all']},{i:'cardamom',s:88,c:['asian']},{i:'caramel',s:90,c:['all']},{i:'hazelnut',s:88,c:['italian']},{i:'cinnamon',s:85,c:['all']},{i:'cream',s:88,c:['all']},{i:'bacon',s:78,c:['all']},{i:'almond',s:80,c:['all']},{i:'orange peel',s:82,c:['all']}] },
+};
+
+let currentIngredient = null;
+let currentCuisine = 'all';
+let savedCombos = [];
+
+try { savedCombos = JSON.parse(localStorage.getItem('flavor-saved') || '[]'); } catch(e) {}
+
+// Populate datalist
+const dl = document.getElementById('ingredient-suggestions');
+Object.keys(FLAVOR_DATA).forEach(k => {
+  const opt = document.createElement('option');
+  opt.value = k;
+  dl.appendChild(opt);
+});
+
+document.getElementById('ingredient-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') search();
+});
+
+function search() {
+  const raw = document.getElementById('ingredient-input').value.trim().toLowerCase();
+  const key = Object.keys(FLAVOR_DATA).find(k => k === raw || k.startsWith(raw));
+  if (!key) {
+    document.getElementById('pairings-list').classList.add('hidden');
+    showEmptyGraph('No data for "' + raw + '"');
+    return;
+  }
+  currentIngredient = key;
+  renderPairings();
+}
+
+function setCuisine(c) {
+  currentCuisine = c;
+  document.querySelectorAll('.cuisine-btn').forEach(btn => {
+    btn.className = btn.className.replace(' active-filter bg-orange-600', '').replace('bg-gray-700', 'bg-gray-700');
+    btn.classList.remove('active-filter', 'bg-orange-600');
+    btn.classList.add('bg-gray-700');
+  });
+  const activeBtn = document.getElementById('filter-' + c);
+  if (activeBtn) {
+    activeBtn.classList.remove('bg-gray-700');
+    activeBtn.classList.add('bg-orange-600', 'active-filter');
+  }
+  if (currentIngredient) renderPairings();
+}
+
+function getFilteredPairings() {
+  if (!currentIngredient || !FLAVOR_DATA[currentIngredient]) return [];
+  return FLAVOR_DATA[currentIngredient].pairings.filter(p =>
+    currentCuisine === 'all' || p.c.includes(currentCuisine) || p.c.includes('all')
+  );
+}
+
+function renderPairings() {
+  const pairings = getFilteredPairings();
+  document.getElementById('current-ingredient').textContent = currentIngredient;
+  document.getElementById('pairings-list').classList.remove('hidden');
+
+  const cards = document.getElementById('pairing-cards');
+  cards.innerHTML = pairings.length === 0
+    ? '<p class="text-gray-500 text-sm">No pairings match this cuisine filter.</p>'
+    : pairings.sort((a,b) => b.s - a.s).map(p => `
+      <div class="flex items-center gap-3 bg-gray-800 rounded-lg px-3 py-2">
+        <div class="flex-1">
+          <span class="text-sm font-medium text-white">${p.i}</span>
+          <div class="flex items-center gap-1 mt-1">
+            <div class="h-2 rounded-full bg-gradient-to-r from-orange-600 to-yellow-400" style="width:${p.s}%"></div>
+            <span class="text-xs text-gray-400">${p.s}%</span>
+          </div>
+        </div>
+        <span class="text-xs text-gray-500">${p.c.join(', ')}</span>
+        <button onclick="savePairing('${currentIngredient}','${p.i}')"
+          class="text-gray-500 hover:text-yellow-400 transition text-lg" aria-label="Save pairing ${currentIngredient} + ${p.i}">⭐</button>
+      </div>
+    `).join('');
+
+  renderGraph(pairings);
+}
+
+function renderGraph(pairings) {
+  const svg = document.getElementById('graph-svg');
+  const W = svg.clientWidth || 600;
+  const H = 340;
+  svg.innerHTML = '';
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+  if (!pairings.length) return;
+
+  // Center node
+  const cx = W / 2, cy = H / 2;
+  const radius = Math.min(W, H) * 0.35;
+
+  // Draw links
+  pairings.forEach((p, i) => {
+    const angle = (2 * Math.PI * i / pairings.length) - Math.PI / 2;
+    const nx = cx + radius * Math.cos(angle);
+    const ny = cy + radius * Math.sin(angle);
+    const strength = p.s / 100;
+
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', cx); line.setAttribute('y1', cy);
+    line.setAttribute('x2', nx); line.setAttribute('y2', ny);
+    line.setAttribute('stroke', `hsl(${30 + strength * 40}, 80%, 55%)`);
+    line.setAttribute('stroke-width', 1 + strength * 3);
+    line.setAttribute('stroke-opacity', 0.4 + strength * 0.4);
+    svg.appendChild(line);
+  });
+
+  // Draw peripheral nodes
+  pairings.forEach((p, i) => {
+    const angle = (2 * Math.PI * i / pairings.length) - Math.PI / 2;
+    const nx = cx + radius * Math.cos(angle);
+    const ny = cy + radius * Math.sin(angle);
+    const r = 8 + p.s / 15;
+
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('role', 'button');
+    g.setAttribute('tabindex', '0');
+    g.setAttribute('aria-label', p.i + ' pairing strength ' + p.s + '%');
+    g.style.cursor = 'pointer';
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', nx); circle.setAttribute('cy', ny); circle.setAttribute('r', r);
+    circle.setAttribute('fill', `hsl(${30 + p.s * 0.4}, 80%, 55%)`);
+    circle.setAttribute('stroke', '#1f2937'); circle.setAttribute('stroke-width', '2');
+
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', nx); text.setAttribute('y', ny + r + 12);
+    text.setAttribute('text-anchor', 'middle'); text.setAttribute('fill', '#d1d5db');
+    text.setAttribute('font-size', '10');
+    text.textContent = p.i;
+
+    g.appendChild(circle); g.appendChild(text);
+    svg.appendChild(g);
+  });
+
+  // Center node
+  const cg = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  const cc = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  cc.setAttribute('cx', cx); cc.setAttribute('cy', cy); cc.setAttribute('r', '22');
+  cc.setAttribute('fill', '#ea580c'); cc.setAttribute('stroke', '#fbbf24'); cc.setAttribute('stroke-width', '2');
+  const ct = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  ct.setAttribute('x', cx); ct.setAttribute('y', cy + 5);
+  ct.setAttribute('text-anchor', 'middle'); ct.setAttribute('fill', 'white');
+  ct.setAttribute('font-size', '11'); ct.setAttribute('font-weight', 'bold');
+  ct.textContent = currentIngredient;
+  cg.appendChild(cc); cg.appendChild(ct);
+  svg.appendChild(cg);
+}
+
+function showEmptyGraph(msg) {
+  const svg = document.getElementById('graph-svg');
+  const W = svg.clientWidth || 600;
+  svg.innerHTML = `<text x="${W/2}" y="170" text-anchor="middle" fill="#6b7280" font-size="14">${msg}</text>`;
+}
+
+function savePairing(a, b) {
+  const key = [a, b].sort().join(' + ');
+  if (!savedCombos.includes(key)) {
+    savedCombos.push(key);
+    try { localStorage.setItem('flavor-saved', JSON.stringify(savedCombos)); } catch(e) {}
+    renderSaved();
+  }
+}
+
+function renderSaved() {
+  const container = document.getElementById('saved-tags');
+  if (savedCombos.length === 0) {
+    container.innerHTML = '<span class="text-xs text-gray-500 italic">Save pairings by clicking ⭐ below</span>';
+    return;
+  }
+  container.innerHTML = savedCombos.map((c, i) => `
+    <span class="saved-tag bg-orange-900 text-orange-200 text-xs px-2 py-1 rounded-full flex items-center gap-1">
+      ${c}
+      <button onclick="removeSaved(${i})" class="text-orange-400 hover:text-red-400 ml-1" aria-label="Remove ${c}">×</button>
+    </span>
+  `).join('');
+}
+
+function removeSaved(i) {
+  savedCombos.splice(i, 1);
+  try { localStorage.setItem('flavor-saved', JSON.stringify(savedCombos)); } catch(e) {}
+  renderSaved();
+}
+
+function clearSaved() {
+  if (savedCombos.length && confirm('Clear all saved pairings?')) {
+    savedCombos = [];
+    localStorage.removeItem('flavor-saved');
+    renderSaved();
+  }
+}
+
+function exportList() {
+  if (!savedCombos.length) { alert('No saved pairings yet.'); return; }
+  const text = 'Saved Flavor Pairings\n' + new Date().toLocaleDateString() + '\n\n' + savedCombos.join('\n');
+  const blob = new Blob([text], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'flavor-pairings.txt';
+  a.click();
+}
+
+renderSaved();
+</script>
+</body>
+</html>
